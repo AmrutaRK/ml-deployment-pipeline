@@ -1,0 +1,15 @@
+# Service: a stable, permanent address for the resnet18 Pods above, even
+# though individual Pods get killed/recreated (with new internal IPs)
+# constantly. Without this, there'd be nothing reliable to route to.
+apiVersion: v1
+kind: Service
+metadata:
+  name: resnet18-service
+spec:
+  type: LoadBalancer   # provisions a real external IP via GCP
+  selector:
+    app: resnet18       # matches the Pod label from resnet-deployment.yaml
+  ports:
+    - protocol: TCP
+      port: 80           # port external traffic hits
+      targetPort: 8000    # port the container is actually listening on

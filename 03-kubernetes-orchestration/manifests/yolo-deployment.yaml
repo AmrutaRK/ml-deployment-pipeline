@@ -1,0 +1,40 @@
+# Same pattern as resnet-deployment.yaml, pointed at the YOLO detection
+# image instead. Notice this file is almost identical in structure - that's
+# the point of Kubernetes: the orchestration rules don't care what's
+# actually inside the container, only how to run and manage it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yolo-detection-deployment
+  labels:
+    app: yolo-detection
+spec:
+  replicas: 2   # detection is more CPU-intensive per request than
+                 # classification (NMS, more preprocessing) - starting with
+                 # fewer replicas and letting the HPA scale up under real load
+  selector:
+    matchLabels:
+      app: yolo-detection
+  template:
+    metadata:
+      labels:
+        app: yolo-detection
+    spec:
+      containers:
+        - name: yolo-detection-container
+          image: europe-west3-docker.pkg.dev/YOUR_PROJECT_ID/mlops-repo/yolo-detection-service
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "500m"       # higher than ResNet's - YOLO inference +
+              memory: "1Gi"      # NMS postprocessing is heavier per request
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health      # same /health pattern as ResNet, even
+              port: 8000          # though /predict itself returns an image
+            initialDelaySeconds: 5
+            periodSeconds: 10
