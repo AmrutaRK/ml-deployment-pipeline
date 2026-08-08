@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# OS
+.DS_Store
+
+# Secrets
+.env
+*.pem
+*credentials*.json
+
+# Generated model artifacts (regenerate via each folder's export script)
+*.onnx
+*.pt
+*.engine
+
+# GCP
+.gcloudignore
