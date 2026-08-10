@@ -1,0 +1,128 @@
+# This file MUST live at exactly this path in the repo:
+#   .github/workflows/deploy-yolo.yml
+# GitHub only scans this specific folder for workflow files - it won't be
+# picked up from anywhere else, no matter how the rest of the repo is
+# organized.
+
+name: Build and Deploy YOLO Detection Service
+
+# WHEN this workflow runs. "on:" defines the trigger.
+on:
+  push:
+    branches: [main]
+    # Only run this workflow when files relevant to the YOLO service
+    # actually changed - editing the ResNet folder or this README
+    # shouldn't trigger a YOLO rebuild/redeploy. 
+    paths:
+      - '01-onnx-fastapi-docker-gcp/yolo-detection/**'
+      - '.github/workflows/deploy-yolo.yml'
+
+# Environment variables shared across every step below - defined once here
+# instead of repeated in each step.
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: europe-west3
+  REPO: mlops-repo
+  IMAGE_NAME: yolo-detection-service
+  CLUSTER_NAME: mlops-cluster
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest   # GitHub provides this machine for free, temporarily,
+                               # just for the duration of this workflow run
+
+    steps:
+      # STEP 1: Get the actual code onto this temporary machine.
+      # GitHub's runner starts completely empty - it doesn't have your repo
+      # until you explicitly check it out, same as cloning fresh onto a new laptop.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # STEP 2: Authenticate to GCP using the service account key we set
+      # up as a GitHub Secret. This is what lets this temporary,
+      # anonymous machine act as your GCP service account for the rest
+      # of the workflow.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # STEP 3: Install the gcloud CLI on this runner (it's not there by default).
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # STEP 4: Let Docker (on this runner) push to Artifact Registry.
+      # Same command that was run manually earlier - here it's
+      # just running on GitHub's machine instead of yours.
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      # STEP 5: Build the image.
+      # --platform linux/amd64 explicitly, same reason as when you built
+      # locally on your Apple Silicon Mac - GitHub's runners happen to
+      # already be amd64, but being explicit here avoids ever silently
+      # depending on whatever architecture the runner happens to be.
+      - name: Build Docker image
+        run: |
+          docker build --platform linux/amd64 \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:latest \
+            01-onnx-fastapi-docker-gcp/yolo-detection
+      # NOTE the TWO tags: ${{ github.sha }} (the exact git commit hash)
+      # AND :latest. The commit-sha tag gives every build a unique,
+      # permanent, traceable identifier - useful for rollbacks ("redeploy
+      # exactly what was running last Tuesday"). :latest is just a
+      # convenient moving pointer to "whatever was built most recently."
+      # Relying on ONLY :latest is a common mistake - you lose the ability
+      # to know exactly which image is running or roll back precisely.
+
+      # STEP 6: Smoke test - run the container FOR REAL on this runner and
+      # confirm it actually works, BEFORE pushing/deploying it anywhere.
+      # This is the actual "CI" (continuous INTEGRATION) part of CI/CD -
+      # catching a broken build here means it never reaches production at all.
+      - name: Smoke test the built image
+        run: |
+          docker run -d -p 8000:8000 --name smoke-test \
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sleep 5
+          # Hit /health - if this fails, `curl -f` makes the whole step
+          # (and therefore the whole workflow) fail loudly, stopping
+          # a broken image from ever reaching push/deploy.
+          curl -f http://localhost:8000/health
+          docker stop smoke-test
+
+      # STEP 7: Only reached if the smoke test passed. Push both tags to
+      # Artifact Registry - same registry you've been pushing to manually.
+      - name: Push image to Artifact Registry
+        run: |
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:latest
+
+      # STEP 8: Get kubectl talking to your actual cluster - equivalent
+      # to the `gcloud container clusters get-credentials` command you
+      # ran manually before, just running here instead.
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.REGION }}
+
+      # STEP 9: Tell the EXISTING Deployment to switch to the new image.
+      # Deliberately NOT re-running `kubectl apply -f yolo-deployment.yaml`
+      # here - that would work too, but `kubectl set image` is the more
+      # precise, standard way to express "just update the image, nothing
+      # else about the Deployment's config changed."
+      - name: Deploy new image to Kubernetes
+        run: |
+          kubectl set image deployment/yolo-detection-deployment \
+            yolo-detection-container=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # STEP 10: Wait and confirm the rollout actually succeeded, rather
+      # than just firing the command and hoping. This is what makes it
+      # "CD" (continuous DEPLOYMENT) rather than "continuous crossing your
+      # fingers" - if new Pods fail their liveness probe and never become
+      # ready, this step will fail LOUDLY here, in the workflow log,
+      # instead of you discovering it later when someone reports the
+      # service is broken.
+      - name: Verify rollout succeeded
+        run: kubectl rollout status deployment/yolo-detection-deployment --timeout=120s
