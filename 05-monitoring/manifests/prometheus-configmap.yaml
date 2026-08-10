@@ -1,0 +1,31 @@
+# ConfigMap: a way to inject a config FILE into a Pod without baking it
+# into the Docker image. Prometheus reads this as its main config file,
+# telling it WHERE to find metrics and HOW OFTEN to check.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s   # how often Prometheus pulls fresh numbers
+                               # from each target - this is the actual
+                               # "pull" in "pull-based monitoring"
+
+    scrape_configs:
+      # A "job" is just a named group of targets. Each target below is a
+      # Kubernetes Service's internal DNS name - Kubernetes automatically
+      # gives every Service a DNS entry in the form
+      # <service-name>.<namespace>.svc.cluster.local, reachable from
+      # anywhere else inside the same cluster (this is a different,
+      # INTERNAL address from the external LoadBalancer IP used earlier -
+      # Prometheus doesn't need to leave the cluster to reach these).
+      - job_name: 'resnet18-service'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['resnet18-service.default.svc.cluster.local:80']
+
+      - job_name: 'yolo-detection-service'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['yolo-detection-service.default.svc.cluster.local:80']

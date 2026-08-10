@@ -4,3 +4,4 @@ onnxruntime==1.19.2
 numpy==1.26.4
 pillow==10.4.0
 python-multipart==0.0.9
+prometheus-fastapi-instrumentator==7.0.0

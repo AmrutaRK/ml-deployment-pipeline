@@ -23,6 +23,12 @@ A GitHub Actions workflow ([`.github/workflows/deploy-yolo.yml`](.github/workflo
 
 See [`04-CICD/README.md`](04-CICD/README.md) for the full walkthrough, including GCP service-account setup with least-privilege IAM roles.
 
+## `05-monitoring/` — observability with Prometheus + Grafana
+
+Adds real observability to the ResNet and YOLO services running on Kubernetes: both are instrumented with `prometheus-fastapi-instrumentator` to expose a `/metrics` endpoint, Prometheus scrapes both on a 15s interval via internal cluster DNS, and Grafana visualizes request rate, latency, and in-flight requests on top of it. The Grafana admin password is provisioned as a Kubernetes Secret at deploy time, never committed to the repo.
+
+See [`05-monitoring/README.md`](05-monitoring/README.md) for the full walkthrough, PromQL examples, and setup steps.
+
 ## What's next
 
-GPU-optimized inference serving (TensorRT/Triton) and production monitoring/autoscaling are in progress and will be added as they're ready.
+GPU-optimized inference serving (TensorRT/Triton) is in progress and will be added once verified on real GPU hardware.

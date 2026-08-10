@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-deployment
+spec:
+  replicas: 1   # Prometheus itself isn't horizontally scaled the way your
+                 # services are - it's the thing DOING the monitoring, not
+                 # something under variable load from end users
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.53.0   # official, pre-built image -
+                                             # same idea as Triton's
+                                             # pre-built image in stage 02,
+                                             # nothing for you to build here
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+          ports:
+            - containerPort: 9090   # Prometheus's own default UI/API port
+          volumeMounts:
+            # Mounts the ConfigMap's prometheus.yml into the container's
+            # filesystem at this exact path, matching the --config.file arg above
+            - name: config-volume
+              mountPath: /etc/prometheus/
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+spec:
+  type: LoadBalancer   # exposes Prometheus's own web UI externally, so
+                        # you can browse it directly and run PromQL
+                        # queries by hand, same pattern as your model
+                        # services getting their own external IPs
+  selector:
+    app: prometheus
+  ports:
+    - protocol: TCP
+      port: 9090
+      targetPort: 9090

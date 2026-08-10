@@ -10,12 +10,18 @@ Run locally:  uvicorn app:app --host 0.0.0.0 --port 8000
 Then POST an image to http://localhost:8000/predict
 """
 from fastapi import FastAPI, UploadFile, File
+from prometheus_fastapi_instrumentator import Instrumentator
 import onnxruntime as ort
 import numpy as np
 from PIL import Image
 import io
 
 app = FastAPI(title="ResNet18 ONNX Inference Service")
+
+# Same instrumentation pattern as the YOLO service - exposes GET /metrics
+# with request count, latency, and in-progress request metrics, ready for
+# Prometheus to scrape on its own schedule.
+Instrumentator().instrument(app).expose(app)
 
 # Load the ONNX model once at startup, not per-request - this is a common
 # mistake beginners make (loading the model inside the endpoint function

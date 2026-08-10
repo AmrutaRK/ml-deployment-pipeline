@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.1.0   # official pre-built image, same
+                                            # pattern as Prometheus above
+          ports:
+            - containerPort: 3000   # Grafana's default UI port
+          env:
+            # Sets the initial admin password via a Kubernetes Secret,
+            # never a plaintext value in this file - create the Secret
+            # once with:
+            #   kubectl create secret generic grafana-admin-secret \
+            #     --from-literal=admin-password='<your-own-password>'
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin-secret
+                  key: admin-password
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+spec:
+  type: LoadBalancer   # gives Grafana's dashboard its own external IP -
+                        # this is the one you'll actually spend time in
+  selector:
+    app: grafana
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000

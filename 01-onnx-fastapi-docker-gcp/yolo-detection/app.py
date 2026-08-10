@@ -9,12 +9,21 @@ Then open http://localhost:8000 in a browser and upload an image.
 """
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, StreamingResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 import onnxruntime as ort
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import io
 
 app = FastAPI(title="YOLOv8 ONNX Object Detection Service")
+
+# Auto-instruments every route on this app with Prometheus metrics -
+# request count, latency histograms, in-progress requests - and exposes
+# them at GET /metrics in the plain-text format Prometheus expects.
+# This is a PULL-based system: Prometheus itself will periodically visit
+# /metrics and scrape whatever's there - the app doesn't push anything
+# anywhere, it just passively exposes current numbers when asked.
+Instrumentator().instrument(app).expose(app)
 
 session = ort.InferenceSession("yolov8n.onnx", providers=["CPUExecutionProvider"])
 input_name = session.get_inputs()[0].name
