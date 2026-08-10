@@ -1,0 +1,91 @@
+# Must live at exactly: .github/workflows/deploy-resnet.yml
+# Same pattern as deploy-yolo.yml, adjusted for ResNet's specifics -
+# see that file's comments for the fuller step-by-step explanation of
+# WHY each step exists; this one focuses comments on what's different.
+
+name: Build and Deploy ResNet Classification Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '01-onnx-fastapi-docker-gcp/resnet-classification/**'
+      - '.github/workflows/deploy-resnet.yml'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: europe-west3
+  REPO: mlops-repo
+  IMAGE_NAME: resnet18-service
+  CLUSTER_NAME: mlops-cluster
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # DIFFERENT from YOLO here: ResNet's export script needs torch +
+      # torchvision directly (not bundled as a dependency the way
+      # ultralytics pulls torch in automatically). This also downloads
+      # pretrained ImageNet weights at export time, over the network -
+      # worth knowing as the reason this step is slower than YOLO's.
+      - name: Export ResNet model to ONNX
+        run: |
+          pip install torch torchvision
+          cd 01-onnx-fastapi-docker-gcp/resnet-classification
+          python export_to_onnx.py
+
+      - name: Build Docker image
+        run: |
+          docker build --platform linux/amd64 \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:latest \
+            01-onnx-fastapi-docker-gcp/resnet-classification
+
+      - name: Smoke test the built image
+        run: |
+          docker run -d -p 8000:8000 --name smoke-test \
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sleep 5
+          curl -f http://localhost:8000/health
+          docker stop smoke-test
+
+      - name: Push image to Artifact Registry
+        run: |
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.REGION }}
+
+      # DIFFERENT from YOLO here: resnet18-deployment / resnet18-container -
+      # matching the actual names in 03-kubernetes-orchestration/manifests/resnet-deployment.yaml
+      - name: Deploy new image to Kubernetes
+        run: |
+          kubectl set image deployment/resnet18-deployment \
+            resnet18-container=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Verify rollout succeeded
+        run: kubectl rollout status deployment/resnet18-deployment --timeout=120s
