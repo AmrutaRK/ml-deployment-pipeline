@@ -50,7 +50,7 @@ jobs:
       # worth knowing as the reason this step is slower than YOLO's.
       - name: Export ResNet model to ONNX
         run: |
-          pip install torch torchvision
+          pip install torch torchvision onnx
           cd 01-onnx-fastapi-docker-gcp/resnet-classification
           python export_to_onnx.py
 
