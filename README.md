@@ -17,6 +17,12 @@ Runs the ResNet and YOLO services together in one GKE cluster — each with its 
 
 See [`03-kubernetes-orchestration/README.md`](03-kubernetes-orchestration/README.md) for the full concepts writeup and how to run it on GKE.
 
+## `04-CICD/` — automated build, test, and deploy with GitHub Actions
+
+A GitHub Actions workflow ([`.github/workflows/deploy-yolo.yml`](.github/workflows/deploy-yolo.yml)) that replaces the manual `docker build` / `push` / `kubectl` sequence: on every push to `main` that touches the YOLO service, it builds the image, smoke-tests it for real before anything ships, pushes to Artifact Registry, and rolls out the update to the GKE deployment from stage 03 — verifying the rollout actually succeeded rather than assuming it did.
+
+See [`04-CICD/README.md`](04-CICD/README.md) for the full walkthrough, including GCP service-account setup with least-privilege IAM roles.
+
 ## What's next
 
 GPU-optimized inference serving (TensorRT/Triton) and production monitoring/autoscaling are in progress and will be added as they're ready.
