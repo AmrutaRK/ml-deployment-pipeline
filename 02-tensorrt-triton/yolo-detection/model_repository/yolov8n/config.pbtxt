@@ -1,0 +1,46 @@
+# Input/output names and shapes below are VERIFIED against the actual
+# exported yolov8n.onnx graph (via onnx.load), not assumed - see
+# export_to_tensorrt.py's comments for how this was checked.
+#
+# Put the built TensorRT engine here as:
+#   model_repository/yolov8n/1/model.plan
+
+name: "yolov8n"
+platform: "tensorrt_plan"
+max_batch_size: 0
+# max_batch_size: 0 is deliberate here, NOT a typo. The ResNet stage used
+# max_batch_size: 16 with Triton's automatic batching. YOLO's ONNX export
+# has NO dynamic batch axis (fixed shape [1, 3, 640, 640] - confirmed
+# above) - Triton's automatic batching requires the model to support a
+# variable batch dimension, which this export doesn't. Setting
+# max_batch_size: 0 tells Triton "this model handles its own fixed shape,
+# don't try to batch requests together." Enabling dynamic batching here
+# would require re-exporting the ONNX model with a dynamic batch axis
+# first (same dynamic_axes technique used in the ResNet export stage) -
+# a real, worthwhile improvement to make before running this for real,
+# not done here since it changes the export step this config depends on.
+
+input [
+  {
+    name: "images"
+    data_type: TYPE_FP32
+    dims: [ 1, 3, 640, 640 ]   # full shape given explicitly since
+                                 # max_batch_size is 0 (no implicit batch
+                                 # dim, unlike the ResNet config)
+  }
+]
+
+output [
+  {
+    name: "output0"
+    data_type: TYPE_FP32
+    dims: [ 1, 84, 8400 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]

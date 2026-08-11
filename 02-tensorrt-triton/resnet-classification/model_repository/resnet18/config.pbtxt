@@ -1,0 +1,44 @@
+# Model repository structure Triton expects:
+#   model_repository/
+#     resnet18/
+#       config.pbtxt      <- this file
+#       1/                <- version number
+#         model.plan      <- the built TensorRT engine
+
+name: "resnet18"
+platform: "tensorrt_plan"
+max_batch_size: 16
+
+input [
+  {
+    name: "input"
+    data_type: TYPE_FP32
+    dims: [ 3, 224, 224 ]   # Triton adds the batch dimension automatically
+                              # given max_batch_size above
+  }
+]
+
+output [
+  {
+    name: "output"
+    data_type: TYPE_FP32
+    dims: [ 1000 ]           # 1000 ImageNet classes
+  }
+]
+
+# Dynamic batching: Triton automatically groups multiple incoming
+# requests together into a single GPU batch (up to max_batch_size) if
+# they arrive within a small time window - better GPU utilization under
+# load, with no extra serving code required. This works here because the
+# ONNX export used a dynamic batch axis (see export_to_onnx.py).
+dynamic_batching {
+  preferred_batch_size: [ 4, 8 ]
+  max_queue_delay_microseconds: 2000
+}
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]
